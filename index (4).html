@@ -1,0 +1,308 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knapsack Problem Optimizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1a202c, #2d3748);
+            color: #e2e8f0;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #knapsack-table {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            overflow-x: auto;
+        }
+        #knapsack-table table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        #knapsack-table th, #knapsack-table td {
+            border: 1px solid #e2e8f0;
+            padding: 8px;
+            text-align: center;
+            font-size: 14px;
+            color: #1a202c;
+        }
+        #knapsack-table th {
+            background: #60a5fa;
+            color: #fff;
+        }
+        #knapsack-table td.selected {
+            background: #f87171;
+            color: #fff;
+        }
+        #controls {
+            max-width: 1200px;
+            width: 100%;
+            padding: 20px;
+            background: rgba(45, 55, 72, 0.8);
+            border-radius: 12px;
+            margin: 20px 0;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        button, input {
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        .theme-toggle {
+            background: #4a5568;
+            color: #e2e8f0;
+            padding: 8px 16px;
+            border-radius: 8px;
+        }
+        .theme-toggle:hover {
+            background: #718096;
+        }
+        #info {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        #items-list li {
+            background: #4a5568;
+            padding: 8px;
+            border-radius: 8px;
+            margin: 4px 0;
+        }
+        @media (max-width: 768px) {
+            #knapsack-table {
+                font-size: 12px;
+            }
+            #knapsack-table th, #knapsack-table td {
+                padding: 4px;
+            }
+            #controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body class="dark">
+    <div class="w-full max-w-7xl mx-auto p-6">
+        <h1 class="text-4xl font-bold text-center mb-6 text-white">Knapsack Problem Optimizer</h1>
+        <div id="controls" class="flex flex-wrap gap-4 justify-center">
+            <input id="item-weight" type="number" placeholder="Weight" class="bg-gray-700 text-white p-2 rounded-lg w-24">
+            <input id="item-value" type="number" placeholder="Value" class="bg-gray-700 text-white p-2 rounded-lg w-24">
+            <button onclick="addItem()" class="bg-blue-600 text-white px-4 py-2 rounded-lg">Add Item</button>
+            <input id="capacity" type="number" placeholder="Capacity" class="bg-gray-700 text-white p-2 rounded-lg w-24">
+            <button onclick="solveKnapsack()" class="bg-green-600 text-white px-4 py-2 rounded-lg">Solve</button>
+            <button onclick="clearItems()" class="bg-red-600 text-white px-4 py-2 rounded-lg">Clear Items</button>
+            <button onclick="loadSample()" class="bg-purple-600 text-white px-4 py-2 rounded-lg">Load Sample</button>
+            <button onclick="toggleTheme()" class="theme-toggle">Toggle Theme</button>
+        </div>
+        <div id="info" class="text-sm">Add items and set capacity to start.</div>
+        <div class="mt-4">
+            <h2 class="text-xl font-semibold">Items</h2>
+            <ul id="items-list" class="list-none"></ul>
+        </div>
+        <div id="knapsack-table" class="mt-6"></div>
+    </div>
+    <script>
+        let items = [];
+        let solving = false;
+
+        function addItem() {
+            const weight = parseInt(document.getElementById('item-weight').value);
+            const value = parseInt(document.getElementById('item-value').value);
+            if (isNaN(weight) || isNaN(value) || weight <= 0 || value <= 0) {
+                updateInfo('Please enter valid weight and value.');
+                return;
+            }
+            items.push({ weight, value });
+            updateItemsList();
+            updateInfo(`Added item: Weight=${weight}, Value=${value}`);
+        }
+
+        function clearItems() {
+            items = [];
+            updateItemsList();
+            document.getElementById('knapsack-table').innerHTML = '';
+            updateInfo('Items cleared.');
+        }
+
+        function loadSample() {
+            items = [
+                { weight: 2, value: 10 },
+                { weight: 3, value: 15 },
+                { weight: 5, value: 25 },
+                { weight: 7, value: 30 }
+            ];
+            updateItemsList();
+            document.getElementById('capacity').value = 10;
+            updateInfo('Sample items loaded: Capacity=10');
+        }
+
+        function updateItemsList() {
+            const list = document.getElementById('items-list');
+            list.innerHTML = '';
+            items.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.textContent = `Item ${index + 1}: Weight=${item.weight}, Value=${item.value}`;
+                list.appendChild(li);
+            });
+        }
+
+        async function solveKnapsack() {
+            if (solving) return;
+            solving = true;
+            const capacity = parseInt(document.getElementById('capacity').value);
+            if (isNaN(capacity) || capacity <= 0) {
+                updateInfo('Please enter a valid capacity.');
+                solving = false;
+                return;
+            }
+            if (items.length === 0) {
+                updateInfo('Please add at least one item.');
+                solving = false;
+                return;
+            }
+            updateInfo('Solving Knapsack...');
+            const { value, selected } = knapsack(items, capacity);
+            await visualizeKnapsack(items, capacity, selected);
+            updateInfo(`Optimal Value: ${value}, Selected Items: ${selected.map(i => i + 1).join(', ')}`);
+            solving = false;
+        }
+
+        function knapsack(items, capacity) {
+            const n = items.length;
+            const dp = Array(n + 1).fill().map(() => Array(capacity + 1).fill(0));
+            for (let i = 1; i <= n; i++) {
+                for (let w = 0; w <= capacity; w++) {
+                    if (items[i - 1].weight <= w) {
+                        dp[i][w] = Math.max(
+                            dp[i - 1][w],
+                            dp[i - 1][w - items[i - 1].weight] + items[i - 1].value
+                        );
+                    } else {
+                        dp[i][w] = dp[i - 1][w];
+                    }
+                }
+            }
+            const selected = [];
+            let w = capacity;
+            for (let i = n; i > 0 && w > 0; i--) {
+                if (dp[i][w] !== dp[i - 1][w]) {
+                    selected.push(i - 1);
+                    w -= items[i - 1].weight;
+                }
+            }
+            return { value: dp[n][capacity], selected: selected.reverse() };
+        }
+
+        async function visualizeKnapsack(items, capacity, selected) {
+            const tableDiv = document.getElementById('knapsack-table');
+            tableDiv.innerHTML = '';
+            const n = items.length;
+            const dp = Array(n + 1).fill().map(() => Array(capacity + 1).fill(0));
+            const table = document.createElement('table');
+            const headerRow = document.createElement('tr');
+            headerRow.innerHTML = '<th>Item/Weight</th>' + Array.from({ length: capacity + 1 }, (_, i) => `<th>${i}</th>`).join('');
+            table.appendChild(headerRow);
+            const row0 = document.createElement('tr');
+            row0.innerHTML = '<td>0</td>' + Array(capacity + 1).fill('<td>0</td>').join('');
+            table.appendChild(row0);
+            tableDiv.appendChild(table);
+            for (let i = 1; i <= n; i++) {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>Item ${i}</td>` + Array(capacity + 1).fill('<td>0</td>').join('');
+                table.appendChild(row);
+                for (let w = 0; w <= capacity; w++) {
+                    if (items[i - 1].weight <= w) {
+                        dp[i][w] = Math.max(
+                            dp[i - 1][w],
+                            dp[i - 1][w - items[i - 1].weight] + items[i - 1].value
+                        );
+                    } else {
+                        dp[i][w] = dp[i - 1][w];
+                    }
+                    row.cells[w + 1].textContent = dp[i][w];
+                    row.cells[w + 1].classList.add('selected');
+                    await sleep(50);
+                    row.cells[w + 1].classList.remove('selected');
+                }
+                await sleep(200);
+            }
+            selected.forEach(i => {
+                for (let w = 0; w <= capacity; w++) {
+                    if (dp[i + 1][w] !== dp[i][w]) {
+                        table.rows[i + 1].cells[w + 1].classList.add('selected');
+                    }
+                }
+            });
+        }
+
+        function updateInfo(message) {
+            document.getElementById('info').innerHTML = message;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle('dark');
+            document.body.style.background = document.body.classList.contains('dark')
+                ? 'linear-gradient(135deg, #1a202c, #2d3748)'
+                : 'linear-gradient(135deg, #e6e6fa, #dcdcdc)';
+            updateInfo('Theme toggled.');
+        }
+
+        // Initialize
+        updateItemsList();
+    </script>
+</body>
+</html>
